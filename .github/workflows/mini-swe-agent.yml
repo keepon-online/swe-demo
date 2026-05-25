@@ -63,7 +63,7 @@ jobs:
             await github.rest.issues.createComment({
               ...context.repo,
               issue_number: context.issue.number,
-              body: "mini-swe-agent skipped this PR because it comes from a fork and the workflow does not expose model secrets to forked code."
+              body: "mini-swe-agent 已跳过这个 PR，因为它来自 fork 仓库；当前工作流不会向 fork 代码暴露模型相关密钥。"
             });
 
       - name: Stop after fork guard
@@ -92,9 +92,9 @@ jobs:
               ...context.repo,
               issue_number: context.issue.number,
               body: [
-                "mini-swe-agent could not start because one or more required secrets are missing.",
+                "mini-swe-agent 无法启动，因为缺少一个或多个必需的 Secrets。",
                 "",
-                "Required secrets:",
+                "必需的 Secrets：",
                 "- `MSWEA_MODEL_NAME`",
                 "- `THIRD_PARTY_API_KEY`",
                 "- `THIRD_PARTY_API_BASE`"
@@ -174,100 +174,100 @@ jobs:
               source_snapshot = source_snapshot[:45000] + "\n\n[source snapshot truncated by workflow]"
 
           system_prompt = (
-              "You are a senior software reviewer. "
-              "Return only concise markdown. "
-              "Focus on correctness bugs, regressions, security risks, and missing tests. "
-              "Do not suggest style-only nits."
+              "你是一名资深代码审查工程师。"
+              "只输出简洁的中文 Markdown。"
+              "重点关注正确性缺陷、行为回归、安全风险和缺失测试。"
+              "不要给出纯样式类建议。"
           )
 
           if review_mode == "pull_request":
-              user_prompt = f"""Review this pull request and return markdown only.
+              user_prompt = f"""请审查这个 Pull Request，并只返回中文 Markdown。
 
-              PR title:
+              PR 标题：
               {title}
 
-              PR body:
+              PR 描述：
               {body or "(empty)"}
 
-              Trigger comment:
+              触发评论：
               {trigger_comment}
 
-              Base branch:
+              基线分支：
               {base_ref}
 
-              Changed files:
+              变更文件：
               {files or "(none)"}
 
-              Diff stat:
+              Diff 统计：
               {diff_stat or "(none)"}
 
-              Unified diff:
+              Unified diff：
               {diff_patch or "(none)"}
 
-              Output format:
-              ## mini-swe-agent review
-              ### Findings
-              - [high|medium|low] path:line - issue and why it matters
+              输出格式：
+              ## mini-swe-agent 审查
+              ### 发现
+              - [high|medium|low] path:line - 问题及影响
 
-              ### Tests
-              - Commands run or "Not run"
+              ### 验证
+              - 已运行的命令，或“未运行”
 
-              ### Verdict
-              - One short summary sentence
+              ### 结论
+              - 一句简短总结
 
-              If there are no material issues, write:
-              ## mini-swe-agent review
-              ### Findings
-              - No material findings.
+              如果没有实质性问题，请输出：
+              ## mini-swe-agent 审查
+              ### 发现
+              - 未发现实质性问题。
 
-              ### Tests
-              - Not run
+              ### 验证
+              - 未运行
 
-              ### Verdict
-              - No material issues found in the reviewed diff.
+              ### 结论
+              - 在当前审查范围内未发现实质性问题。
               """
           else:
-              user_prompt = f"""Analyze this GitHub issue against the current main branch code and return markdown only.
+              user_prompt = f"""请结合当前 main 分支代码分析这个 GitHub Issue，并只返回中文 Markdown。
 
-              Issue title:
+              Issue 标题：
               {title}
 
-              Issue body:
+              Issue 描述：
               {body or "(empty)"}
 
-              Trigger comment:
+              触发评论：
               {trigger_comment}
 
-              Current branch:
+              当前分支：
               {base_ref}
 
-              Repository files:
+              仓库文件：
               {files or "(none)"}
 
-              Relevant source snapshot:
+              相关源码快照：
               {source_snapshot or "(none)"}
 
-              Output format:
-              ## mini-swe-agent review
-              ### Findings
-              - [high|medium|low] path:line - likely bug or root cause and why it matters
+              输出格式：
+              ## mini-swe-agent 审查
+              ### 发现
+              - [high|medium|low] path:line - 疑似根因或缺陷，以及影响
 
-              ### Tests
-              - Commands run or "Not run"
+              ### 验证
+              - 已运行的命令，或“未运行”
 
-              ### Verdict
-              - One short summary sentence
+              ### 结论
+              - 一句简短总结
 
-              If there are no material issues, write:
-              ## mini-swe-agent review
-              ### Findings
-              - No material findings.
+              如果没有实质性问题，请输出：
+              ## mini-swe-agent 审查
+              ### 发现
+              - 未发现实质性问题。
 
-              ### Tests
-              - Not run
+              ### 验证
+              - 未运行
 
-              ### Verdict
-              - No material issues found in the reviewed code snapshot.
+              ### 结论
+              - 在当前代码快照范围内未发现实质性问题。
               """
 
           response = completion(
@@ -311,7 +311,7 @@ jobs:
               tail = ""
               if console_path.exists():
                   tail = "\n".join(console_path.read_text().splitlines()[-40:])
-              body = "## mini-swe-agent review\n\nAgent finished without a review payload. Check the workflow logs for details."
+              body = "## mini-swe-agent 审查\n\n本次执行未生成有效审查内容，请查看 workflow 日志获取详情。"
               if tail:
                   body += f"\n\n```text\n{tail[:4000]}\n```"
 
