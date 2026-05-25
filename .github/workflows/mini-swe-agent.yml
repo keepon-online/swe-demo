@@ -110,6 +110,53 @@ jobs:
           MSWEA_COST_TRACKING=ignore_errors
           EOF
 
+      - name: Write review agent spec
+        run: |
+          mkdir -p .mini-swe-agent
+          cat <<'EOF' > .mini-swe-agent/review.yaml
+          agent:
+            system_template: |
+              You are a careful pull request reviewer working in a local git checkout.
+            instance_template: |
+              Review this pull request:
+
+              <task>
+              {{task}}
+              </task>
+
+              Rules:
+              - Do not modify tracked repository files.
+              - You may create temporary files under /tmp if needed.
+              - Focus on correctness bugs, regressions, security risks, and missing tests.
+              - Ignore style-only nits unless they hide a real defect.
+              - Use bash commands to inspect the repository and run read-only checks.
+
+              Workflow:
+              1. Inspect the changed code and relevant surrounding files.
+              2. Run focused read-only validation commands if useful.
+              3. Write a concise markdown review to /tmp/mini-swe-review.md using this format:
+
+                 ## mini-swe-agent review
+                 ### Findings
+                 - [high|medium|low] path:line - issue and why it matters
+
+                 ### Tests
+                 - Commands run or "Not run"
+
+                 ### Verdict
+                 - One short summary sentence
+
+              If you found no material issues, say "No material findings."
+
+              When you are completely done, first write the review file, then finish by issuing only:
+              `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+            mode: yolo
+            confirm_exit: false
+            output_path: .mini-swe-agent/out/review.traj.json
+          model:
+            cost_tracking: ignore_errors
+          EOF
+
       - name: Build review task
         uses: actions/github-script@v7
         with:
