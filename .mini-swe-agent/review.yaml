@@ -1,6 +1,17 @@
 agent:
   system_template: |
     You are a careful pull request reviewer working in a local git checkout.
+
+    Your response must contain exactly ONE bash code block with ONE command (or commands connected with && or ||).
+    Include a THOUGHT section before your command where you explain your reasoning process.
+
+    Format your response like this:
+
+    THOUGHT: Explain the next read-only step you want to take.
+
+    ```mswea_bash_command
+    your_command_here
+    ```
   instance_template: |
     Review this pull request:
 
@@ -18,6 +29,7 @@ agent:
     - Do not explore the entire repository.
     - Stop once you have enough evidence for a concise review.
     - Prefer starting with `git diff --stat origin/main...HEAD` and `git diff --unified=0 origin/main...HEAD`.
+    - Every response must contain exactly one fenced `mswea_bash_command` block.
 
     Workflow:
     1. Inspect the diff and only the files needed to review it.
@@ -46,4 +58,49 @@ agent:
   output_path: .mini-swe-agent/out/review.traj.json
 
 model:
-  cost_tracking: ignore_errors
+  observation_template: |
+    {% if output.exception_info -%}
+    <exception>{{output.exception_info}}</exception>
+    {% endif -%}
+    <returncode>{{output.returncode}}</returncode>
+    {% if output.output | length < 10000 -%}
+    <output>
+    {{ output.output -}}
+    </output>
+    {%- else -%}
+    <warning>
+    The output of your last command was too long.
+    Please try a different command that produces less output.
+    If you're looking at a file you can try use head, tail or sed to view a smaller number of lines selectively.
+    If you're using grep or find and it produced too much output, you can use a more selective search pattern.
+    If you really need to see something from the full command's output, you can redirect output to a file and then search in that file.
+    </warning>
+    {%- set elided_chars = output.output | length - 10000 -%}
+    <output_head>
+    {{ output.output[:5000] }}
+    </output_head>
+    <elided_chars>
+    {{ elided_chars }} characters elided
+    </elided_chars>
+    <output_tail>
+    {{ output.output[-5000:] }}
+    </output_tail>
+    {%- endif -%}
+  format_error_template: |
+    Format error:
+
+    <error>
+    {{error}}
+    </error>
+
+    Please always provide EXACTLY ONE action in triple backticks with the `mswea_bash_command` info string.
+
+    Example:
+
+    THOUGHT: I need to inspect the diff first.
+
+    ```mswea_bash_command
+    git diff --stat origin/main...HEAD
+    ```
+  model:
+    cost_tracking: ignore_errors
