@@ -107,8 +107,7 @@ jobs:
           THIRD_PARTY_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
           THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
         run: |
-          uv run --with litellm python - <<'PY'
-          import json
+          cat <<'PY' > .probe/review_probe.py
           import os
           import traceback
           from litellm import completion
@@ -120,44 +119,44 @@ jobs:
 
           user_prompt = """Review this pull request:
 
-<task>
-PR #1
-Title: test: mini-swe-agent workflow smoke test
+          <task>
+          PR #1
+          Title: test: mini-swe-agent workflow smoke test
 
-PR body:
-## Summary
-- add a harmless README line to trigger the mini-swe-agent workflow
+          PR body:
+          ## Summary
+          - add a harmless README line to trigger the mini-swe-agent workflow
 
-## Test Plan
-- comment /mini-swe on this PR
+          ## Test Plan
+          - comment /mini-swe on this PR
 
-Trigger comment:
-/mini-swe
+          Trigger comment:
+          /mini-swe
 
-Reviewer request:
-Review the current pull request and return only actionable review findings.
-</task>
+          Reviewer request:
+          Review the current pull request and return only actionable review findings.
+          </task>
 
-Rules:
-- Do not modify tracked repository files.
-- Use bash commands only if needed for read-only checks.
-- Keep the review narrow. Only inspect files directly relevant to the pull request.
-- Do not explore the entire repository.
-- Stop once you have enough evidence for a concise review.
+          Rules:
+          - Do not modify tracked repository files.
+          - Use bash commands only if needed for read-only checks.
+          - Keep the review narrow. Only inspect files directly relevant to the pull request.
+          - Do not explore the entire repository.
+          - Stop once you have enough evidence for a concise review.
 
-Expected output format:
-## mini-swe-agent review
-### Findings
-- [high|medium|low] path:line - issue and why it matters
+          Expected output format:
+          ## mini-swe-agent review
+          ### Findings
+          - [high|medium|low] path:line - issue and why it matters
 
-### Tests
-- Commands run or "Not run"
+          ### Tests
+          - Commands run or "Not run"
 
-### Verdict
-- One short summary sentence
+          ### Verdict
+          - One short summary sentence
 
-If you found no material issues, say "No material findings."
-"""
+          If you found no material issues, say "No material findings."
+          """
 
           try:
               resp = completion(
@@ -181,3 +180,5 @@ If you found no material issues, say "No material findings."
               traceback.print_exc()
               raise
           PY
+
+          uv run --with litellm python .probe/review_probe.py
