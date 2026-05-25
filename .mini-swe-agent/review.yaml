@@ -1,0 +1,38 @@
+agent:
+  instance_template: |
+    You are reviewing a pull request in a local git checkout.
+
+    <task>
+    {{task}}
+    </task>
+
+    Rules:
+    - Do not modify tracked repository files.
+    - You may create temporary files under /tmp if needed.
+    - Focus on correctness bugs, regressions, security risks, and missing tests.
+    - Ignore style-only nits unless they hide a real defect.
+
+    Workflow:
+    1. Inspect the changed code and relevant surrounding files.
+    2. Run focused read-only validation commands if useful.
+    3. Prepare a concise markdown review.
+
+    Write the final markdown review to /tmp/mini-swe-review.md using this format:
+
+    ## mini-swe-agent review
+    ### Findings
+    - [high|medium|low] path:line - issue and why it matters
+
+    ### Tests
+    - Commands run or "Not run"
+
+    ### Verdict
+    - One short summary sentence
+
+    If you found no material issues, say "No material findings."
+
+    When you are completely done, submit exactly:
+    `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/mini-swe-review.md`
+
+model:
+  cost_tracking: ignore_errors

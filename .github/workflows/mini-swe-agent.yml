@@ -1,0 +1,211 @@
+name: mini-swe-agent
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  review:
+    if: >-
+      ${{
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/mini-swe') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Load pull request metadata
+        uses: actions/github-script@v7
+        id: pr
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const pull_number = context.issue.number;
+            const {data: pr} = await github.rest.pulls.get({owner, repo, pull_number});
+
+            core.setOutput("head_sha", pr.head.sha);
+            core.setOutput("head_ref", pr.head.ref);
+            core.setOutput("head_repo", pr.head.repo.full_name);
+            core.setOutput("base_repo", pr.base.repo.full_name);
+            core.setOutput("title", pr.title);
+            core.setOutput("body", pr.body || "");
+
+      - name: Skip fork pull requests
+        if: steps.pr.outputs.head_repo != steps.pr.outputs.base_repo
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: "mini-swe-agent skipped this PR because it comes from a fork and the workflow does not expose model secrets to forked code."
+            });
+
+      - name: Stop after fork guard
+        if: steps.pr.outputs.head_repo != steps.pr.outputs.base_repo
+        run: exit 0
+
+      - name: Check required secrets
+        id: secrets
+        env:
+          HAS_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME != '' }}
+          HAS_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY != '' }}
+          HAS_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE != '' }}
+        run: |
+          if [ "$HAS_MODEL_NAME" = "true" ] && [ "$HAS_API_KEY" = "true" ] && [ "$HAS_API_BASE" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report missing secrets
+        if: steps.secrets.outputs.ready != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: [
+                "mini-swe-agent could not start because one or more required secrets are missing.",
+                "",
+                "Required secrets:",
+                "- `MSWEA_MODEL_NAME`",
+                "- `THIRD_PARTY_API_KEY`",
+                "- `THIRD_PARTY_API_BASE`"
+              ].join("\n")
+            });
+
+      - name: Stop after missing secret check
+        if: steps.secrets.outputs.ready != 'true'
+        run: exit 0
+
+      - name: Check out pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build review task
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const path = require("path");
+
+            const lines = [
+              `PR #${context.issue.number}`,
+              `Title: ${`${{ steps.pr.outputs.title }}`}`,
+              "",
+              "PR body:",
+              `${`${{ steps.pr.outputs.body }}`}` || "(empty)",
+              "",
+              "Trigger comment:",
+              `${`${{ github.event.comment.body }}`}`,
+              "",
+              "Reviewer request:",
+              "Review the current pull request and return only actionable review findings.",
+            ];
+
+            fs.mkdirSync(path.join(".mini-swe-agent", "out"), {recursive: true});
+            fs.writeFileSync(path.join(".mini-swe-agent", "out", "task.md"), lines.join("\n"));
+
+      - name: Run mini-swe-agent
+        id: run_agent
+        continue-on-error: true
+        env:
+          MSWEA_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME }}
+          MSWEA_COST_TRACKING: ignore_errors
+          OPENAI_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
+          THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
+        run: |
+          TASK="$(cat .mini-swe-agent/out/task.md)"
+          uvx --from mini-swe-agent mini \
+            -y \
+            --exit-immediately \
+            -m "$MSWEA_MODEL_NAME" \
+            -c mini.yaml \
+            -c .mini-swe-agent/review.yaml \
+            -c model.model_kwargs.custom_llm_provider=openai \
+            -c "model.model_kwargs.api_base=$THIRD_PARTY_API_BASE" \
+            -o .mini-swe-agent/out/review.traj.json \
+            -t "$TASK" \
+            | tee .mini-swe-agent/out/console.log
+
+      - name: Build comment body
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          traj_path = Path(".mini-swe-agent/out/review.traj.json")
+          console_path = Path(".mini-swe-agent/out/console.log")
+          comment_path = Path(".mini-swe-agent/out/comment.md")
+          marker = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+
+          def find_submission(value):
+              if isinstance(value, dict):
+                  submission = value.get("submission")
+                  if isinstance(submission, str) and submission.strip():
+                      return submission.strip()
+                  for child in value.values():
+                      found = find_submission(child)
+                      if found:
+                          return found
+              elif isinstance(value, list):
+                  for child in value:
+                      found = find_submission(child)
+                      if found:
+                          return found
+              return ""
+
+          body = ""
+          if traj_path.exists():
+              try:
+                  traj = json.loads(traj_path.read_text())
+                  body = find_submission(traj)
+              except Exception as exc:
+                  body = f"## mini-swe-agent review\n\nFailed to parse trajectory output: `{exc}`"
+
+          if not body and console_path.exists():
+              lines = console_path.read_text().splitlines()
+              for idx, line in enumerate(lines):
+                  if line.strip() == marker:
+                      body = "\n".join(lines[idx + 1 :]).strip()
+                      break
+
+          if not body:
+              if traj_path.exists():
+                  body = "## mini-swe-agent review\n\nAgent finished without a review payload. Check the workflow logs for details."
+              else:
+                  body = "## mini-swe-agent review\n\nAgent did not produce a trajectory file. Check the workflow logs for details."
+
+          if len(body) > 60000:
+              body = body[:60000] + "\n\n_Truncated by workflow._"
+
+          comment_path.write_text(body)
+          PY
+
+      - name: Reply on the pull request
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync(".mini-swe-agent/out/comment.md", "utf8");
+
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body
+            });
