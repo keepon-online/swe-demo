@@ -20,23 +20,32 @@ PORT=9090 go run ./cmd/server
 curl http://localhost:8080/ping
 ```
 
-## mini-swe-agent review workflow
+## mini-swe-agent 工作流
 
-This repository includes a GitHub Actions workflow that runs `mini-swe-agent` for pull request review.
+本仓库已经集成 `/mini-swe` 评论工作流，支持：
 
-### Trigger
+- Pull Request 评论触发审查
+- Issue 评论触发问题分析
 
-Comment `/mini-swe` on a pull request.
+触发方式：
 
-### Required secrets
+```text
+/mini-swe
+```
+
+必需的 GitHub Secrets：
 
 - `MSWEA_MODEL_NAME`
 - `THIRD_PARTY_API_KEY`
 - `THIRD_PARTY_API_BASE`
 
-### Notes
+推荐模型配置示例：
 
-- Set `MSWEA_MODEL_NAME` with the provider prefix, for example `openai/your-model-name`.
-- Only `OWNER`, `MEMBER`, and `COLLABORATOR` comments can trigger the workflow.
-- Fork pull requests are skipped to avoid exposing model secrets.
-- The workflow is read-only and replies with a review comment.
+```text
+MSWEA_MODEL_NAME=openai/deepseek-v4-pro
+THIRD_PARTY_API_BASE=https://api.deepseek.com
+```
+
+完整使用说明见：
+
+- [docs/mini-swe-usage.md](docs/mini-swe-usage.md)
