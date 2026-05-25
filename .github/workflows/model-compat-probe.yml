@@ -2,6 +2,11 @@ name: model-compat-probe
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/model-compat-probe.yml
 
 permissions:
   contents: read
