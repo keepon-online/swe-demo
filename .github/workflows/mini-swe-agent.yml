@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   review:
@@ -95,6 +95,20 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Prepare mini-swe-agent global config
+        env:
+          MSWEA_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME }}
+          OPENAI_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
+          THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
+        run: |
+          mkdir -p "$HOME/.config/mini-swe-agent"
+          cat <<EOF > "$HOME/.config/mini-swe-agent/.env"
+          MSWEA_MODEL_NAME=$MSWEA_MODEL_NAME
+          OPENAI_API_KEY=$OPENAI_API_KEY
+          OPENAI_API_BASE=$THIRD_PARTY_API_BASE
+          MSWEA_COST_TRACKING=ignore_errors
+          EOF
+
       - name: Build review task
         uses: actions/github-script@v7
         with:
@@ -133,10 +147,7 @@ jobs:
             -y \
             --exit-immediately \
             -m "$MSWEA_MODEL_NAME" \
-            -c mini.yaml \
             -c .mini-swe-agent/review.yaml \
-            -c model.model_kwargs.custom_llm_provider=openai \
-            -c "model.model_kwargs.api_base=$THIRD_PARTY_API_BASE" \
             -o .mini-swe-agent/out/review.traj.json \
             -t "$TASK" \
             | tee .mini-swe-agent/out/console.log
