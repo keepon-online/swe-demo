@@ -95,3 +95,84 @@ jobs:
               traceback.print_exc()
               raise
           PY
+
+      - name: Probe review-style prompt compatibility
+        env:
+          MSWEA_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME }}
+          THIRD_PARTY_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
+          THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
+        run: |
+          uv run --with litellm python - <<'PY'
+          import json
+          import os
+          import traceback
+          from litellm import completion
+
+          system_prompt = (
+              "You are a careful pull request reviewer working in a local git checkout. "
+              "Focus on correctness bugs, regressions, security risks, and missing tests."
+          )
+
+          user_prompt = """Review this pull request:
+
+<task>
+PR #1
+Title: test: mini-swe-agent workflow smoke test
+
+PR body:
+## Summary
+- add a harmless README line to trigger the mini-swe-agent workflow
+
+## Test Plan
+- comment /mini-swe on this PR
+
+Trigger comment:
+/mini-swe
+
+Reviewer request:
+Review the current pull request and return only actionable review findings.
+</task>
+
+Rules:
+- Do not modify tracked repository files.
+- Use bash commands only if needed for read-only checks.
+- Keep the review narrow. Only inspect files directly relevant to the pull request.
+- Do not explore the entire repository.
+- Stop once you have enough evidence for a concise review.
+
+Expected output format:
+## mini-swe-agent review
+### Findings
+- [high|medium|low] path:line - issue and why it matters
+
+### Tests
+- Commands run or "Not run"
+
+### Verdict
+- One short summary sentence
+
+If you found no material issues, say "No material findings."
+"""
+
+          try:
+              resp = completion(
+                  model=os.environ["MSWEA_MODEL_NAME"],
+                  api_key=os.environ["THIRD_PARTY_API_KEY"],
+                  api_base=os.environ["THIRD_PARTY_API_BASE"],
+                  custom_llm_provider="openai",
+                  messages=[
+                      {"role": "system", "content": system_prompt},
+                      {"role": "user", "content": user_prompt},
+                  ],
+                  temperature=0,
+              )
+              print("=== REVIEW-STYLE LITELLM RESPONSE ===")
+              print(resp.model_dump_json(indent=2)[:8000])
+          except Exception as exc:
+              print("=== REVIEW-STYLE LITELLM EXCEPTION ===")
+              print(type(exc).__name__)
+              print(str(exc))
+              print("\n=== TRACEBACK ===")
+              traceback.print_exc()
+              raise
+          PY
