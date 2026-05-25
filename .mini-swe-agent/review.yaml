@@ -14,6 +14,9 @@ agent:
     - Focus on correctness bugs, regressions, security risks, and missing tests.
     - Ignore style-only nits unless they hide a real defect.
     - Use bash commands to inspect the repository and run read-only checks.
+    - Keep the review narrow. Only inspect files that are directly relevant to the pull request.
+    - Do not explore the entire repository.
+    - Stop once you have enough evidence for a concise review.
 
     Workflow:
     1. Inspect the changed code and relevant surrounding files.
@@ -34,6 +37,9 @@ agent:
 
     When you are completely done, first write the review file, then finish by issuing only:
     `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+  step_limit: 6
+  wall_time_limit_seconds: 90
+  cost_limit: 1.5
   mode: yolo
   confirm_exit: false
   output_path: .mini-swe-agent/out/review.traj.json
