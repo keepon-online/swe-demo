@@ -1,0 +1,97 @@
+name: model-compat-probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required secrets
+        env:
+          HAS_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME != '' }}
+          HAS_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY != '' }}
+          HAS_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE != '' }}
+        run: |
+          if [ "$HAS_MODEL_NAME" != "true" ] || [ "$HAS_API_KEY" != "true" ] || [ "$HAS_API_BASE" != "true" ]; then
+            echo "Required secrets are missing."
+            exit 1
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Probe raw OpenAI-compatible response
+        env:
+          MSWEA_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME }}
+          THIRD_PARTY_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
+          THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
+        run: |
+          MODEL_NAME="${MSWEA_MODEL_NAME#openai/}"
+          BASE_URL="${THIRD_PARTY_API_BASE%/}"
+          mkdir -p .probe
+          curl -sS \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $THIRD_PARTY_API_KEY" \
+            "$BASE_URL/chat/completions" \
+            -d "$(cat <<EOF
+          {
+            "model": "$MODEL_NAME",
+            "messages": [
+              {"role": "user", "content": "Reply with exactly the word pong."}
+            ],
+            "temperature": 0
+          }
+          EOF
+          )" > .probe/raw-response.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          raw = Path(".probe/raw-response.json").read_text()
+          print("=== RAW RESPONSE ===")
+          print(raw[:4000])
+
+          data = json.loads(raw)
+          print("\n=== TOP-LEVEL KEYS ===")
+          print(sorted(data.keys()))
+          if "choices" in data and data["choices"]:
+              print("\n=== FIRST CHOICE ===")
+              print(json.dumps(data["choices"][0], ensure_ascii=False)[:4000])
+          PY
+
+      - name: Probe LiteLLM compatibility
+        env:
+          MSWEA_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME }}
+          THIRD_PARTY_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
+          THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
+        run: |
+          uv run --with litellm python - <<'PY'
+          import json
+          import os
+          import traceback
+          from litellm import completion
+
+          try:
+              resp = completion(
+                  model=os.environ["MSWEA_MODEL_NAME"],
+                  api_key=os.environ["THIRD_PARTY_API_KEY"],
+                  api_base=os.environ["THIRD_PARTY_API_BASE"],
+                  custom_llm_provider="openai",
+                  messages=[{"role": "user", "content": "Reply with exactly the word pong."}],
+                  temperature=0,
+              )
+              print("=== LITELLM RESPONSE ===")
+              print(resp.model_dump_json(indent=2)[:4000])
+          except Exception as exc:
+              print("=== LITELLM EXCEPTION ===")
+              print(type(exc).__name__)
+              print(str(exc))
+              print("\n=== TRACEBACK ===")
+              traceback.print_exc()
+              raise
+          PY
