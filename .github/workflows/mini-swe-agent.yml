@@ -138,7 +138,7 @@ jobs:
             git diff --unified=1 "${{ steps.context.outputs.base_sha }}...${{ steps.context.outputs.head_sha }}" > .mini-swe-agent/out/diff.patch
           else
             printf "(issue mode: no git diff available against main)\n" > .mini-swe-agent/out/diff.stat
-            rg --files cmd internal > .mini-swe-agent/out/files.txt
+            find cmd internal -type f | sort > .mini-swe-agent/out/files.txt
             printf "(issue mode: analyze current main code snapshot)\n" > .mini-swe-agent/out/diff.patch
             while IFS= read -r file; do
               printf "\n--- FILE: %s ---\n" "$file" >> .mini-swe-agent/out/source_snapshot.txt
