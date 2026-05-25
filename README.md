@@ -40,3 +40,7 @@ Comment `/mini-swe` on a pull request.
 - Only `OWNER`, `MEMBER`, and `COLLABORATOR` comments can trigger the workflow.
 - Fork pull requests are skipped to avoid exposing model secrets.
 - The workflow is read-only and replies with a review comment.
+
+### Smoke test note
+
+This line exists only to exercise the PR review workflow end to end.
