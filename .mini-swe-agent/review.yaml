@@ -1,6 +1,8 @@
 agent:
+  system_template: |
+    You are a careful pull request reviewer working in a local git checkout.
   instance_template: |
-    You are reviewing a pull request in a local git checkout.
+    Review this pull request:
 
     <task>
     {{task}}
@@ -11,28 +13,30 @@ agent:
     - You may create temporary files under /tmp if needed.
     - Focus on correctness bugs, regressions, security risks, and missing tests.
     - Ignore style-only nits unless they hide a real defect.
+    - Use bash commands to inspect the repository and run read-only checks.
 
     Workflow:
     1. Inspect the changed code and relevant surrounding files.
     2. Run focused read-only validation commands if useful.
-    3. Prepare a concise markdown review.
+    3. Write a concise markdown review to /tmp/mini-swe-review.md using this format:
 
-    Write the final markdown review to /tmp/mini-swe-review.md using this format:
+       ## mini-swe-agent review
+       ### Findings
+       - [high|medium|low] path:line - issue and why it matters
 
-    ## mini-swe-agent review
-    ### Findings
-    - [high|medium|low] path:line - issue and why it matters
+       ### Tests
+       - Commands run or "Not run"
 
-    ### Tests
-    - Commands run or "Not run"
-
-    ### Verdict
-    - One short summary sentence
+       ### Verdict
+       - One short summary sentence
 
     If you found no material issues, say "No material findings."
 
-    When you are completely done, submit exactly:
-    `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat /tmp/mini-swe-review.md`
+    When you are completely done, first write the review file, then finish by issuing only:
+    `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+  mode: yolo
+  confirm_exit: false
+  output_path: .mini-swe-agent/out/review.traj.json
 
 model:
   cost_tracking: ignore_errors
