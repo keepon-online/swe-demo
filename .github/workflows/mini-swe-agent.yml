@@ -13,33 +13,50 @@ jobs:
   review:
     if: >-
       ${{
-        github.event.issue.pull_request &&
         startsWith(github.event.comment.body, '/mini-swe') &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
       }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Load pull request metadata
+      - name: Load review context
         uses: actions/github-script@v7
-        id: pr
+        id: context
         with:
           script: |
             const {owner, repo} = context.repo;
-            const pull_number = context.issue.number;
-            const {data: pr} = await github.rest.pulls.get({owner, repo, pull_number});
+            const issue = context.payload.issue;
+            const {data: repoInfo} = await github.rest.repos.get({owner, repo});
+            const defaultBranch = repoInfo.default_branch;
+            const {data: branch} = await github.rest.repos.getBranch({owner, repo, branch: defaultBranch});
 
-            core.setOutput("head_sha", pr.head.sha);
-            core.setOutput("head_ref", pr.head.ref);
-            core.setOutput("head_repo", pr.head.repo.full_name);
-            core.setOutput("base_repo", pr.base.repo.full_name);
-            core.setOutput("base_sha", pr.base.sha);
-            core.setOutput("base_ref", pr.base.ref);
-            core.setOutput("title", pr.title);
-            core.setOutput("body", pr.body || "");
+            if (issue.pull_request) {
+              const {data: pr} = await github.rest.pulls.get({owner, repo, pull_number: issue.number});
+              core.setOutput("mode", "pull_request");
+              core.setOutput("head_sha", pr.head.sha);
+              core.setOutput("head_ref", pr.head.ref);
+              core.setOutput("head_repo", pr.head.repo.full_name);
+              core.setOutput("base_repo", pr.base.repo.full_name);
+              core.setOutput("base_sha", pr.base.sha);
+              core.setOutput("base_ref", pr.base.ref);
+              core.setOutput("checkout_ref", pr.head.sha);
+              core.setOutput("title", pr.title);
+              core.setOutput("body", pr.body || "");
+            } else {
+              core.setOutput("mode", "issue");
+              core.setOutput("head_sha", branch.commit.sha);
+              core.setOutput("head_ref", defaultBranch);
+              core.setOutput("head_repo", `${owner}/${repo}`);
+              core.setOutput("base_repo", `${owner}/${repo}`);
+              core.setOutput("base_sha", branch.commit.sha);
+              core.setOutput("base_ref", defaultBranch);
+              core.setOutput("checkout_ref", defaultBranch);
+              core.setOutput("title", issue.title);
+              core.setOutput("body", issue.body || "");
+            }
 
       - name: Skip fork pull requests
-        if: steps.pr.outputs.head_repo != steps.pr.outputs.base_repo
+        if: steps.context.outputs.mode == 'pull_request' && steps.context.outputs.head_repo != steps.context.outputs.base_repo
         uses: actions/github-script@v7
         with:
           script: |
@@ -50,7 +67,7 @@ jobs:
             });
 
       - name: Stop after fork guard
-        if: steps.pr.outputs.head_repo != steps.pr.outputs.base_repo
+        if: steps.context.outputs.mode == 'pull_request' && steps.context.outputs.head_repo != steps.context.outputs.base_repo
         run: exit 0
 
       - name: Check required secrets
@@ -88,21 +105,22 @@ jobs:
         if: steps.secrets.outputs.ready != 'true'
         run: exit 0
 
-      - name: Check out pull request head
+      - name: Check out review target
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr.outputs.head_sha }}
+          ref: ${{ steps.context.outputs.checkout_ref }}
           fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Prepare mini-swe-agent global config
+      - name: Prepare model environment
         env:
           MSWEA_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME }}
           OPENAI_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
           THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
         run: |
+          mkdir -p .mini-swe-agent/out
           mkdir -p "$HOME/.config/mini-swe-agent"
           cat <<EOF > "$HOME/.config/mini-swe-agent/.env"
           MSWEA_CONFIGURED=true
@@ -114,16 +132,23 @@ jobs:
 
       - name: Build review context
         run: |
-          mkdir -p .mini-swe-agent
-          mkdir -p .mini-swe-agent/out
-          git diff --stat "${{ steps.pr.outputs.base_sha }}...${{ steps.pr.outputs.head_sha }}" > .mini-swe-agent/out/diff.stat
-          git diff --name-only "${{ steps.pr.outputs.base_sha }}...${{ steps.pr.outputs.head_sha }}" > .mini-swe-agent/out/files.txt
-          git diff --unified=1 "${{ steps.pr.outputs.base_sha }}...${{ steps.pr.outputs.head_sha }}" > .mini-swe-agent/out/diff.patch
+          if [ "${{ steps.context.outputs.mode }}" = "pull_request" ]; then
+            git diff --stat "${{ steps.context.outputs.base_sha }}...${{ steps.context.outputs.head_sha }}" > .mini-swe-agent/out/diff.stat
+            git diff --name-only "${{ steps.context.outputs.base_sha }}...${{ steps.context.outputs.head_sha }}" > .mini-swe-agent/out/files.txt
+            git diff --unified=1 "${{ steps.context.outputs.base_sha }}...${{ steps.context.outputs.head_sha }}" > .mini-swe-agent/out/diff.patch
+          else
+            printf "(issue mode: no git diff available against main)\n" > .mini-swe-agent/out/diff.stat
+            rg --files cmd internal > .mini-swe-agent/out/files.txt
+            printf "(issue mode: analyze current main code snapshot)\n" > .mini-swe-agent/out/diff.patch
+            while IFS= read -r file; do
+              printf "\n--- FILE: %s ---\n" "$file" >> .mini-swe-agent/out/source_snapshot.txt
+              sed -n '1,220p' "$file" >> .mini-swe-agent/out/source_snapshot.txt
+            done < .mini-swe-agent/out/files.txt
+          fi
 
       - name: Run one-shot review
         env:
           MSWEA_MODEL_NAME: ${{ secrets.MSWEA_MODEL_NAME }}
-          MSWEA_COST_TRACKING: ignore_errors
           OPENAI_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}
           THIRD_PARTY_API_BASE: ${{ secrets.THIRD_PARTY_API_BASE }}
         run: |
@@ -133,68 +158,117 @@ jobs:
           from litellm import completion
 
           base_ref = os.environ["BASE_REF"]
-          title = os.environ["PR_TITLE"]
-          body = os.environ["PR_BODY"]
+          title = os.environ["REVIEW_TITLE"]
+          body = os.environ["REVIEW_BODY"]
           trigger_comment = os.environ["TRIGGER_COMMENT"]
+          review_mode = os.environ["REVIEW_MODE"]
           diff_stat = Path(".mini-swe-agent/out/diff.stat").read_text()
           files = Path(".mini-swe-agent/out/files.txt").read_text()
           diff_patch = Path(".mini-swe-agent/out/diff.patch").read_text()
+          source_snapshot_path = Path(".mini-swe-agent/out/source_snapshot.txt")
+          source_snapshot = source_snapshot_path.read_text() if source_snapshot_path.exists() else ""
 
           if len(diff_patch) > 45000:
               diff_patch = diff_patch[:45000] + "\n\n[diff truncated by workflow]"
+          if len(source_snapshot) > 45000:
+              source_snapshot = source_snapshot[:45000] + "\n\n[source snapshot truncated by workflow]"
 
           system_prompt = (
-              "You are a senior pull request reviewer. "
+              "You are a senior software reviewer. "
               "Return only concise markdown. "
               "Focus on correctness bugs, regressions, security risks, and missing tests. "
               "Do not suggest style-only nits."
           )
 
-          user_prompt = f"""Review this pull request and return markdown only.
+          if review_mode == "pull_request":
+              user_prompt = f"""Review this pull request and return markdown only.
 
-          PR title:
-          {title}
+              PR title:
+              {title}
 
-          PR body:
-          {body or "(empty)"}
+              PR body:
+              {body or "(empty)"}
 
-          Trigger comment:
-          {trigger_comment}
+              Trigger comment:
+              {trigger_comment}
 
-          Base branch:
-          {base_ref}
+              Base branch:
+              {base_ref}
 
-          Changed files:
-          {files or "(none)"}
+              Changed files:
+              {files or "(none)"}
 
-          Diff stat:
-          {diff_stat or "(none)"}
+              Diff stat:
+              {diff_stat or "(none)"}
 
-          Unified diff:
-          {diff_patch or "(none)"}
+              Unified diff:
+              {diff_patch or "(none)"}
 
-          Output format:
-          ## mini-swe-agent review
-          ### Findings
-          - [high|medium|low] path:line - issue and why it matters
+              Output format:
+              ## mini-swe-agent review
+              ### Findings
+              - [high|medium|low] path:line - issue and why it matters
 
-          ### Tests
-          - Commands run or "Not run"
+              ### Tests
+              - Commands run or "Not run"
 
-          ### Verdict
-          - One short summary sentence
+              ### Verdict
+              - One short summary sentence
 
-          If there are no material issues, write:
-          ## mini-swe-agent review
-          ### Findings
-          - No material findings.
+              If there are no material issues, write:
+              ## mini-swe-agent review
+              ### Findings
+              - No material findings.
 
-          ### Tests
-          - Not run
+              ### Tests
+              - Not run
 
-          ### Verdict
-          - No material issues found in the reviewed diff.
-          """
+              ### Verdict
+              - No material issues found in the reviewed diff.
+              """
+          else:
+              user_prompt = f"""Analyze this GitHub issue against the current main branch code and return markdown only.
+
+              Issue title:
+              {title}
+
+              Issue body:
+              {body or "(empty)"}
+
+              Trigger comment:
+              {trigger_comment}
+
+              Current branch:
+              {base_ref}
+
+              Repository files:
+              {files or "(none)"}
+
+              Relevant source snapshot:
+              {source_snapshot or "(none)"}
+
+              Output format:
+              ## mini-swe-agent review
+              ### Findings
+              - [high|medium|low] path:line - likely bug or root cause and why it matters
+
+              ### Tests
+              - Commands run or "Not run"
+
+              ### Verdict
+              - One short summary sentence
+
+              If there are no material issues, write:
+              ## mini-swe-agent review
+              ### Findings
+              - No material findings.
+
+              ### Tests
+              - Not run
+
+              ### Verdict
+              - No material issues found in the reviewed code snapshot.
+              """
 
           response = completion(
               model=os.environ["MSWEA_MODEL_NAME"],
@@ -212,9 +286,10 @@ jobs:
           Path(".mini-swe-agent/out/review.md").write_text(content.strip())
           PY
 
-          BASE_REF="${{ steps.pr.outputs.base_ref }}" \
-          PR_TITLE="${{ steps.pr.outputs.title }}" \
-          PR_BODY="${{ steps.pr.outputs.body }}" \
+          BASE_REF="${{ steps.context.outputs.base_ref }}" \
+          REVIEW_TITLE="${{ steps.context.outputs.title }}" \
+          REVIEW_BODY="${{ steps.context.outputs.body }}" \
+          REVIEW_MODE="${{ steps.context.outputs.mode }}" \
           TRIGGER_COMMENT="${{ github.event.comment.body }}" \
           uv run --with litellm python .mini-swe-agent/out/review_once.py | tee .mini-swe-agent/out/console.log
 
@@ -229,7 +304,6 @@ jobs:
           comment_path = Path(".mini-swe-agent/out/comment.md")
 
           body = ""
-
           if review_path.exists():
               body = review_path.read_text().strip()
 
@@ -247,7 +321,7 @@ jobs:
           comment_path.write_text(body)
           PY
 
-      - name: Reply on the pull request
+      - name: Reply on the issue or pull request
         if: always()
         uses: actions/github-script@v7
         with:

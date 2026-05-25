@@ -8,6 +8,6 @@ import (
 
 func NewRouter() *gin.Engine {
 	router := gin.Default()
-	router.GET("/ping", handler.Ping)
+	router.POST("/ping", handler.Ping)
 	return router
 }
