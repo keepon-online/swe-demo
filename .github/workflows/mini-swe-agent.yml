@@ -103,6 +103,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.config/mini-swe-agent"
           cat <<EOF > "$HOME/.config/mini-swe-agent/.env"
+          MSWEA_CONFIGURED=true
           MSWEA_MODEL_NAME=$MSWEA_MODEL_NAME
           OPENAI_API_KEY=$OPENAI_API_KEY
           OPENAI_API_BASE=$THIRD_PARTY_API_BASE
