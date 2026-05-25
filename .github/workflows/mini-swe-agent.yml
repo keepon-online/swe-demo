@@ -126,18 +126,19 @@ jobs:
 
               Rules:
               - Do not modify tracked repository files.
-              - You may create temporary files under /tmp if needed.
+              - You may create temporary files under `.mini-swe-agent/out` if needed.
               - Focus on correctness bugs, regressions, security risks, and missing tests.
               - Ignore style-only nits unless they hide a real defect.
               - Use bash commands to inspect the repository and run read-only checks.
               - Keep the review narrow. Only inspect files that are directly relevant to the pull request.
               - Do not explore the entire repository.
               - Stop once you have enough evidence for a concise review.
+              - Prefer starting with `git diff --stat origin/main...HEAD` and `git diff --unified=0 origin/main...HEAD`.
 
               Workflow:
-              1. Inspect the changed code and relevant surrounding files.
+              1. Inspect the diff and only the files needed to review it.
               2. Run focused read-only validation commands if useful.
-              3. Write a concise markdown review to /tmp/mini-swe-review.md using this format:
+              3. Write a concise markdown review to `.mini-swe-agent/out/review.md` using this format:
 
                  ## mini-swe-agent review
                  ### Findings
@@ -215,6 +216,7 @@ jobs:
 
           traj_path = Path(".mini-swe-agent/out/review.traj.json")
           console_path = Path(".mini-swe-agent/out/console.log")
+          review_path = Path(".mini-swe-agent/out/review.md")
           comment_path = Path(".mini-swe-agent/out/comment.md")
           marker = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
@@ -248,6 +250,9 @@ jobs:
                   if line.strip() == marker:
                       body = "\n".join(lines[idx + 1 :]).strip()
                       break
+
+          if not body and review_path.exists():
+              body = review_path.read_text().strip()
 
           if not body:
               if traj_path.exists():
